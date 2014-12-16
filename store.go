@@ -24,7 +24,15 @@ type Store interface {
 	Get(kv KV) (KV, error)
 	Set(kv KV) error
 	Delete(kv KV) error
-	ListKeysWithPrefix(key []byte, horizon uint64) ([][]byte, error)
+	// ListKeysWithPrefix lists the keys with the given prefix.
+	// The returned keys are sorted in (level, bytes) order. Each "/" after prefix increments the level of a returned key (to simulate directory depth).
+	// level is the max level of the listed keys. Zero is unlimited.
+	ListKeysWithPrefix(prefix []byte, horizon uint64, level int) ([][]byte, error)
+
+	// ListKeysInRange lists the keys between [start, end).
+	// The returned keys are sorted in (level, bytes) order. Each "/" after prefix increments the level of a returned key (to simulate directory depth).
+	// level is the max level of the listed keys. Zero is unlimited.
+	ListKeysInRange(start, end []byte, horizon uint64, level int) ([][]byte, error)
 
 	Watch(prefix []byte, recursive, stream bool, start, end uint64) (Watcher, error)
 
