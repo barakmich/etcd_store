@@ -3,22 +3,23 @@ package backend
 import (
 	"encoding/binary"
 	"errors"
+	"time"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/boltdb/bolt"
+)
+
+var (
+	kvBucket = []byte("kv")
 )
 
 type backend struct {
-	db *leveldb.DB
+	db *bolt.DB
 
 	hbytes []byte
 }
 
-func New() (*backend, error) {
-	// TODO: disable default compaction.
-	// we never overwrite/delete a key.
-	// defuault compaction is simply a waste of time.
-	db, err := leveldb.OpenFile("db", nil)
+func New(path string) (*backend, error) {
+	db, err := bolt.Open(path, 0600, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -28,40 +29,68 @@ func New() (*backend, error) {
 	}, nil
 }
 
-func (b *backend) Put(herizon uint64, kv []byte) error {
-	// TODO: add prefix
-	binary.BigEndian.PutUint64(b.hbytes, herizon)
-	return b.db.Put(b.hbytes, kv, nil)
+func (be *backend) Put(herizon uint64, kv []byte) error {
+	// TODO: add transaction coalescer
+	binary.BigEndian.PutUint64(be.hbytes, herizon)
+	err := be.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(kvBucket)
+		if err != nil {
+			return err
+		}
+
+		if err := b.Put(be.hbytes, kv); err != nil {
+			return err
+		}
+		return nil
+	})
+	return err
 }
 
 // Snapshot creates a snapshot at the given herizon.
-func (b *backend) Snapshot(herizon uint64) (*Snapshot, error) {
-	// force sync the db
-	binary.BigEndian.PutUint64(b.hbytes, herizon)
-	err := b.db.Put([]byte("snapshot"), b.hbytes, &opt.WriteOptions{true})
+// TODO: maybe read out an compacted index.
+func (be *backend) Snapshot(herizon uint64) (*Snapshot, error) {
+	tx, err := be.db.Begin(false)
 	if err != nil {
 		return nil, err
 	}
-
-	// create the snapshot
-	dbsnapshot, err := b.db.GetSnapshot()
-	if err != nil {
-		return nil, err
+	b := tx.Bucket(kvBucket)
+	if b == nil {
+		return nil, errors.New("backend: empty db")
 	}
-	snapshot := &Snapshot{
-		snapshot: dbsnapshot,
-		herizon:  herizon,
-	}
+	snapshot := &Snapshot{bu: b, herizon: herizon}
 	return snapshot, nil
 }
 
-// PutCompact puts a compacted state at the given herizon into the db.
-// db can release the herizon before the given herizon(including).
-func (b *backend) PutCompact(state []byte, herizon uint64) error {
-	// Save compacted state
-	// background goroutine
-	//     1. Batch Remove
-	//     2. Trigger db Compaction
+// Compact remove all given herizons。
+// TODO: maybe save an index to the existing herizons for fast
+// crash recovery
+func (b *backend) Compact(herizons []uint64) error {
+	batch := 10000 // do not hold io for a long time
+	hbytes := make([]byte, 9)
+	for i := 0; i < len(herizons); i = i + batch {
+		err := b.db.Update(func(tx *bolt.Tx) error {
+			b, err := tx.CreateBucketIfNotExists(kvBucket)
+			if err != nil {
+				return err
+			}
+
+			for j := i; j < i+batch; j++ {
+				binary.BigEndian.PutUint64(hbytes, herizons[j])
+				err := b.Delete(hbytes)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		// sleep for a while before doing another
+		// batch removal
+		time.Sleep(500 * time.Millisecond)
+	}
 	return nil
 }
 

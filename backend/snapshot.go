@@ -4,32 +4,30 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
-	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/boltdb/bolt"
 )
 
 type Snapshot struct {
-	snapshot *leveldb.Snapshot
-	herizon  uint64
+	bu      *bolt.Bucket
+	herizon uint64
 }
 
 func (s *Snapshot) NewReader() (io.Reader, error) {
 	limit := make([]byte, 8)
 	binary.BigEndian.PutUint64(limit, s.herizon+1)
 	return &snapshotReader{
-		it: s.snapshot.NewIterator(&util.Range{Limit: limit}, nil),
+		limit: limit,
+		c:     s.bu.Cursor(),
 	}, nil
 }
 
 func (s *Snapshot) Close() error {
-	s.snapshot.Release()
-	return nil
+	return s.bu.Tx().Commit()
 }
 
 type snapshotReader struct {
-	it        iterator.Iterator
-	exhausted bool
+	limit []byte
+	c     *bolt.Cursor
 	// TODO: resue buffer
 	remain []byte
 }
@@ -50,13 +48,12 @@ func (sr *snapshotReader) Read(b []byte) (int, error) {
 		if len(sr.remain) != 0 {
 			panic("expect len(remain) == 0")
 		}
-		if sr.exhausted {
-			sr.it.Release()
+		// format?
+		k, v := sr.c.Next()
+		if k == nil {
 			return readN, io.EOF
 		}
-		// format?
-		sr.remain = append(sr.remain, sr.it.Key()...)
-		sr.remain = append(sr.remain, sr.it.Value()...)
-		sr.exhausted = sr.it.Next()
+		sr.remain = append(sr.remain, k...)
+		sr.remain = append(sr.remain, v...)
 	}
 }
