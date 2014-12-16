@@ -9,12 +9,12 @@ import (
 
 type Snapshot struct {
 	bu      *bolt.Bucket
-	herizon uint64
+	horizon uint64
 }
 
 func (s *Snapshot) NewReader() (io.Reader, error) {
 	limit := make([]byte, 8)
-	binary.BigEndian.PutUint64(limit, s.herizon+1)
+	binary.BigEndian.PutUint64(limit, s.horizon+1)
 	return &snapshotReader{
 		limit: limit,
 		c:     s.bu.Cursor(),

@@ -29,9 +29,9 @@ func New(path string) (*backend, error) {
 	}, nil
 }
 
-func (be *backend) Put(herizon uint64, kv []byte) error {
+func (be *backend) Put(horizon uint64, kv []byte) error {
 	// TODO: add transaction coalescer
-	binary.BigEndian.PutUint64(be.hbytes, herizon)
+	binary.BigEndian.PutUint64(be.hbytes, horizon)
 	err := be.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(kvBucket)
 		if err != nil {
@@ -48,7 +48,7 @@ func (be *backend) Put(herizon uint64, kv []byte) error {
 
 // Snapshot creates a snapshot at the given herizon.
 // TODO: maybe read out an compacted index.
-func (be *backend) Snapshot(herizon uint64) (*Snapshot, error) {
+func (be *backend) Snapshot(horizon uint64) (*Snapshot, error) {
 	tx, err := be.db.Begin(false)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (be *backend) Snapshot(herizon uint64) (*Snapshot, error) {
 	if b == nil {
 		return nil, errors.New("backend: empty db")
 	}
-	snapshot := &Snapshot{bu: b, herizon: herizon}
+	snapshot := &Snapshot{bu: b, horizon: horizon}
 	return snapshot, nil
 }
 
