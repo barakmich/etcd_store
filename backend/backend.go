@@ -12,6 +12,11 @@ var (
 	kvBucket = []byte("kv")
 )
 
+type Backend interface {
+	Put(horizon uint64, kv []byte) error
+	Get(horizon uint64) ([]byte, error)
+}
+
 type backend struct {
 	db *bolt.DB
 
